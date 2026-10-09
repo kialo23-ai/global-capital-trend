@@ -593,37 +593,46 @@ with tab3:
         )
 
 # ============================================================
-# 页脚
+# 全局样式
+# ============================================================
+st.markdown("""
+<style>
+div[data-testid="stMetricValue"] { font-size: 1.3rem !important; font-weight: 700; }
+div[data-testid="stMetricDelta"] { font-size: 0.85rem !important; }
+@media (max-width: 600px) {
+    div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+    div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; }
+}
+.main-title {
+    background: linear-gradient(90deg, #1F4E78, #2E75B6);
+    color: white;
+    padding: 20px 24px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+.main-title h1 { margin: 0; font-size: 1.6rem; }
+.main-title p { margin: 6px 0 0 0; font-size: 0.85rem; opacity: 0.85; }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# 页脚信息
 # ============================================================
 st.divider()
 st.caption(
     "数据来源：Yahoo Finance（通过 yfinance 获取），缓存有效期 1 小时。"
     "本页面仅用于趋势观察，所有数据为公开市场信息的整理，不构成任何投资建议。"
-)    div[data-testid="stMetricValue"] { font-size: 1.3rem !important; font-weight: 700; }
-    div[data-testid="stMetricDelta"] { font-size: 0.85rem !important; }
-    @media (max-width: 600px) {
-        div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-        div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; }
-    }
-    .main-title {
-        background: linear-gradient(90deg, #1F4E78, #2E75B6);
-        color: white;
-        padding: 20px 24px;
-        border-radius: 12px;
-        margin-bottom: 20px;
-    }
-    .main-title h1 { margin: 0; font-size: 1.6rem; }
-    .main-title p { margin: 6px 0 0 0; font-size: 0.85rem; opacity: 0.85; }
-</style>
-""", unsafe_allow_html=True)
+)
 
+# ============================================================
+# 标题
+# ============================================================
 st.markdown("""
 <div class="main-title">
     <h1>🌐 全球资本趋势</h1>
     <p>Global Capital Trend · 数据自动刷新</p>
 </div>
 """, unsafe_allow_html=True)
-
 # ==================== FRED 初始化 ====================
 try:
     FRED_API_KEY = st.secrets["FRED_API_KEY"]
