@@ -20,6 +20,35 @@ st.set_page_config(
 )
 
 # ============================================================
+# 强制展开侧边栏（必须在最前面，避免 st.stop() 时丢失）
+# ============================================================
+st.markdown("""
+<style>
+section[data-testid="stSidebar"] {
+    display: block !important;
+    visibility: visible !important;
+    transform: none !important;
+    margin-left: 0 !important;
+    left: 0 !important;
+    width: 21rem !important;
+    min-width: 21rem !important;
+    max-width: 21rem !important;
+    opacity: 1 !important;
+    position: relative !important;
+    z-index: 999999 !important;
+}
+section[data-testid="stSidebar"] > div {
+    width: 21rem !important;
+    display: block !important;
+}
+[data-testid="stAppViewContainer"] > .main,
+.main .block-container {
+    margin-left: 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
 # 全局样式
 # ============================================================
 st.markdown("""<style>
@@ -57,80 +86,207 @@ div[data-testid="stMetricValue"]{font-size:20px;font-weight:700}
 div[data-testid="stMetricLabel"]{font-size:11px;color:#68758f}
 .stTabs [data-baseweb="tab-list"]{gap:6px}
 .stTabs [data-baseweb="tab"]{padding:6px 14px;font-size:13px}
+
 </style>""", unsafe_allow_html=True)
 
+st.caption("👉 侧边栏（左上角箭头可展开）可选择资产、时间范围和对比模式。")
+
+# ============================================================
+# 分类定义
+# ============================================================
+CATEGORIES = {
+    "股":       {"icon": "📈", "color": "#2563eb", "bg": "#eff6ff"},
+    "债":       {"icon": "📊", "color": "#7c3aed", "bg": "#f5f3ff"},
+    "汇":       {"icon": "💱", "color": "#0891b2", "bg": "#ecfeff"},
+    "能源":     {"icon": "🛢", "color": "#dc2626", "bg": "#fef2f2"},
+    "贵金属":   {"icon": "🥇", "color": "#d97706", "bg": "#fffbeb"},
+    "工业金属": {"icon": "🔩", "color": "#92400e", "bg": "#fef3c7"},
+    "加密":     {"icon": "💎", "color": "#db2777", "bg": "#fdf2f8"},
+    "贸易流":   {"icon": "🚢", "color": "#059669", "bg": "#ecfdf5"},
+}
+
+CATEGORY_ORDER = ["股", "债", "汇", "能源", "贵金属", "工业金属", "加密", "贸易流"]
 
 # ============================================================
 # 资产配置
 # ============================================================
 ASSETS = [
-    {
-        "id": "dxy", "name": "美元指数", "ticker": "DXY",
-        "symbols": ["DX-Y.NYB", "DX=F"], "unit": "", "decimals": 2,
-        "color": "#5b8def", "scale": 1.0, "group": "汇率",
-    },
-    {
-        "id": "gold", "name": "黄金", "ticker": "XAU",
-        "symbols": ["GC=F", "XAUUSD=X"], "unit": "美元/盎司", "decimals": 0,
-        "color": "#ffc043", "scale": 1.0, "group": "贵金属",
-    },
-    {
-        "id": "brent", "name": "布伦特原油", "ticker": "BRENT",
-        "symbols": ["BZ=F", "CL=F"], "unit": "美元/桶", "decimals": 2,
-        "color": "#8b8fa3", "scale": 1.0, "group": "能源",
-    },
-    {
-        "id": "copper", "name": "LME铜", "ticker": "COPPER",
-        "symbols": ["HG=F"], "unit": "美元/吨", "decimals": 0,
-        "color": "#e8853a", "scale": 2204.62, "group": "工业金属",
-        # COMEX铜(美元/磅) × 2204.62 ≈ 美元/吨
-    },
-    {
-        "id": "spx", "name": "标普500", "ticker": "SPX",
-        "symbols": ["^GSPC"], "unit": "", "decimals": 0,
-        "color": "#4ea8de", "scale": 1.0, "group": "股指",
-    },
-    {
-        "id": "ndx", "name": "纳斯达克", "ticker": "IXIC",
-        "symbols": ["^IXIC"], "unit": "", "decimals": 0,
-        "color": "#7c6af0", "scale": 1.0, "group": "股指",
-    },
-    {
-        "id": "ust10y", "name": "美债10年期", "ticker": "US10Y",
-        "symbols": ["^TNX"], "unit": "%", "decimals": 3,
-        "color": "#ef5777", "scale": 1.0, "group": "利率",
-    },
-    {
-        "id": "vix", "name": "VIX恐慌指数", "ticker": "VIX",
-        "symbols": ["^VIX"], "unit": "", "decimals": 2,
-        "color": "#f7b731", "scale": 1.0, "group": "波动率",
-    },
-    {
-        "id": "btc", "name": "比特币", "ticker": "BTC",
-        "symbols": ["BTC-USD"], "unit": "美元", "decimals": 0,
-        "color": "#f7931a", "scale": 1.0, "group": "加密",
-    },
-    {
-        "id": "cny", "name": "美元兑人民币", "ticker": "USDCNY",
-        "symbols": ["CNY=X"], "unit": "", "decimals": 4,
-        "color": "#26c6a8", "scale": 1.0, "group": "汇率",
-    },
+    # ---------------- 股 ----------------
+    {"id": "spx",  "name": "标普500",    "ticker": "SPX",    "cat": "股",
+     "source": "yf", "symbols": ["^GSPC"], "unit": "点", "decimals": 0,
+     "color": "#4ea8de", "scale": 1.0},
+    {"id": "ndx",  "name": "纳斯达克",   "ticker": "IXIC",   "cat": "股",
+     "source": "yf", "symbols": ["^IXIC"], "unit": "点", "decimals": 0,
+     "color": "#7c6af0", "scale": 1.0},
+    {"id": "dji",  "name": "道琼斯",     "ticker": "DJI",    "cat": "股",
+     "source": "yf", "symbols": ["^DJI"], "unit": "点", "decimals": 0,
+     "color": "#3b82f6", "scale": 1.0},
+    {"id": "rut",  "name": "罗素2000",   "ticker": "RUT",    "cat": "股",
+     "source": "yf", "symbols": ["^RUT"], "unit": "点", "decimals": 0,
+     "color": "#60a5fa", "scale": 1.0},
+    {"id": "sox",  "name": "费城半导体", "ticker": "SOX",    "cat": "股",
+     "source": "yf", "symbols": ["^SOX"], "unit": "点", "decimals": 0,
+     "color": "#8b5cf6", "scale": 1.0},
+    {"id": "dax",  "name": "德国DAX",    "ticker": "DAX",    "cat": "股",
+     "source": "yf", "symbols": ["^GDAXI"], "unit": "点", "decimals": 0,
+     "color": "#06b6d4", "scale": 1.0},
+    {"id": "ftse", "name": "英国富时100","ticker": "FTSE",   "cat": "股",
+     "source": "yf", "symbols": ["^FTSE"], "unit": "点", "decimals": 0,
+     "color": "#0ea5e9", "scale": 1.0},
+    {"id": "cac",  "name": "法国CAC40",  "ticker": "CAC",    "cat": "股",
+     "source": "yf", "symbols": ["^FCHI"], "unit": "点", "decimals": 0,
+     "color": "#38bdf8", "scale": 1.0},
+    {"id": "n225", "name": "日经225",    "ticker": "N225",   "cat": "股",
+     "source": "yf", "symbols": ["^N225"], "unit": "点", "decimals": 0,
+     "color": "#f43f5e", "scale": 1.0},
+    {"id": "kospi","name": "韩国KOSPI",  "ticker": "KOSPI",  "cat": "股",
+     "source": "yf", "symbols": ["^KS11"], "unit": "点", "decimals": 0,
+     "color": "#ec4899", "scale": 1.0},
+    {"id": "axjo", "name": "澳洲标普200","ticker": "AXJO",   "cat": "股",
+     "source": "yf", "symbols": ["^AXJO"], "unit": "点", "decimals": 0,
+     "color": "#f97316", "scale": 1.0},
+    {"id": "nsei", "name": "印度Nifty50","ticker": "NIFTY",  "cat": "股",
+     "source": "yf", "symbols": ["^NSEI"], "unit": "点", "decimals": 0,
+     "color": "#fb923c", "scale": 1.0},
+    {"id": "bvsp", "name": "巴西IBOVESPA","ticker": "BVSP",  "cat": "股",
+     "source": "yf", "symbols": ["^BVSP"], "unit": "点", "decimals": 0,
+     "color": "#16a34a", "scale": 1.0},
+    {"id": "hsi",  "name": "恒生指数",   "ticker": "HSI",    "cat": "股",
+     "source": "yf", "symbols": ["^HSI"], "unit": "点", "decimals": 0,
+     "color": "#22c55e", "scale": 1.0},
+     {"id": "hstech", "name": "恒生科技", "ticker": "HSTECH", "cat": "股",
+     "source": "yf", "symbols": ["HSTECH.HK", "3067.HK", "KTEC"], "unit": "点", "decimals": 2,
+     "color": "#06b6d4", "scale": 1.0},
+    {"id": "sse",  "name": "上证指数",   "ticker": "SSE",    "cat": "股",
+     "source": "yf", "symbols": ["000001.SS"], "unit": "点", "decimals": 2,
+     "color": "#ef4444", "scale": 1.0},
+    {"id": "csi300","name": "沪深300",   "ticker": "CSI300", "cat": "股",
+     "source": "yf", "symbols": ["000300.SS"], "unit": "点", "decimals": 2,
+     "color": "#dc2626", "scale": 1.0},
+    {"id": "chinext", "name": "创业板指",   "ticker": "CHINEXT", "cat": "股",
+     "source": "yf", "symbols": ["159915.SZ", "399006.SHE"], "unit": "点", "decimals": 2,
+     "color": "#14b8a6", "scale": 1.0},
+
+    # ---------------- 债 ----------------
+    {"id": "ust2y", "name": "美债2年期", "ticker": "US2Y",   "cat": "债",
+     "source": "fred", "symbols": ["DGS2"], "unit": "%", "decimals": 3,
+     "color": "#a78bfa", "scale": 1.0},
+    {"id": "ust10y","name": "美债10年期","ticker": "US10Y",  "cat": "债",
+     "source": "fred", "symbols": ["DGS10"], "unit": "%", "decimals": 3,
+     "color": "#8b5cf6", "scale": 1.0},
+    {"id": "ust30y","name": "美债30年期","ticker": "US30Y",  "cat": "债",
+     "source": "fred", "symbols": ["DGS30"], "unit": "%", "decimals": 3,
+     "color": "#7c3aed", "scale": 1.0},
+
+    # ---------------- 汇 ----------------
+    {"id": "dxy",  "name": "美元指数DXY","ticker": "DXY",    "cat": "汇",
+     "source": "yf", "symbols": ["DX-Y.NYB", "DX=F"], "unit": "点", "decimals": 2,
+     "color": "#5b8def", "scale": 1.0},
+    {"id": "dtwexbgs","name": "美元广义指数","ticker": "DTWEXBGS","cat": "汇",
+     "source": "fred", "symbols": ["DTWEXBGS"], "unit": "指数", "decimals": 2,
+     "color": "#60a5fa", "scale": 1.0},
+    {"id": "eurusd","name": "欧元/美元", "ticker": "EURUSD", "cat": "汇",
+     "source": "yf", "symbols": ["EURUSD=X"], "unit": "汇率", "decimals": 4,
+     "color": "#0891b2", "scale": 1.0},
+    {"id": "usdjpy","name": "美元/日元", "ticker": "USDJPY", "cat": "汇",
+     "source": "yf", "symbols": ["JPY=X"], "unit": "汇率", "decimals": 2,
+     "color": "#06b6d4", "scale": 1.0},
+    {"id": "gbpusd","name": "英镑/美元", "ticker": "GBPUSD", "cat": "汇",
+     "source": "yf", "symbols": ["GBPUSD=X"], "unit": "汇率", "decimals": 4,
+     "color": "#14b8a6", "scale": 1.0},
+    {"id": "usdcny","name": "美元/人民币","ticker": "USDCNY","cat": "汇",
+     "source": "yf", "symbols": ["CNY=X"], "unit": "汇率", "decimals": 4,
+     "color": "#26c6a8", "scale": 1.0},
+
+    # ---------------- 能源 ----------------
+    {"id": "wti",  "name": "WTI原油",    "ticker": "WTI",    "cat": "能源",
+     "source": "yf", "symbols": ["CL=F"], "unit": "美元/桶", "decimals": 2,
+     "color": "#ef4444", "scale": 1.0},
+    {"id": "brent","name": "布伦特原油", "ticker": "BRENT",  "cat": "能源",
+     "source": "yf", "symbols": ["BZ=F"], "unit": "美元/桶", "decimals": 2,
+     "color": "#dc2626", "scale": 1.0},
+
+    # ---------------- 贵金属 ----------------
+    {"id": "gold", "name": "COMEX黄金",  "ticker": "XAU",    "cat": "贵金属",
+     "source": "yf", "symbols": ["GC=F", "XAUUSD=X"], "unit": "美元/盎司", "decimals": 0,
+     "color": "#ffc043", "scale": 1.0},
+    {"id": "silver","name": "COMEX白银", "ticker": "XAG",    "cat": "贵金属",
+     "source": "yf", "symbols": ["SI=F"], "unit": "美元/盎司", "decimals": 2,
+     "color": "#a8a29e", "scale": 1.0},
+
+    # ---------------- 工业金属 ----------------
+    {"id": "copper","name": "COMEX铜",   "ticker": "COPPER", "cat": "工业金属",
+     "source": "yf", "symbols": ["HG=F"], "unit": "美元/磅", "decimals": 3,
+     "color": "#e8853a", "scale": 1.0},
+
+    # ---------------- 加密 ----------------
+    {"id": "btc",  "name": "比特币",     "ticker": "BTC",    "cat": "加密",
+     "source": "yf", "symbols": ["BTC-USD"], "unit": "美元", "decimals": 0,
+     "color": "#f7931a", "scale": 1.0},
+    {"id": "eth",  "name": "以太坊",     "ticker": "ETH",    "cat": "加密",
+     "source": "yf", "symbols": ["ETH-USD"], "unit": "美元", "decimals": 0,
+     "color": "#627eea", "scale": 1.0},
+
+    # ---------------- 贸易流 ----------------
+    {"id": "gscpi","name": "全球供应链压力","ticker": "GSCPI","cat": "贸易流",
+     "source": "fred", "symbols": ["GSCPI"], "unit": "指数", "decimals": 3,
+     "color": "#059669", "scale": 1.0},
 ]
 
 ASSET_MAP = {a["id"]: a for a in ASSETS}
 
 # 说明文案
 NOTES = {
-    "dxy":  "美元指数衡量美元对一篮子主要货币的强弱。指数下行代表美元贬值，通常利多黄金、大宗商品与新兴市场资产。",
-    "gold": "COMEX 黄金期货主力合约，以美元/盎司计价。避险属性与抗通胀属性使其成为资金流向的重要观察指标。",
-    "brent": "布伦特原油期货，全球原油定价基准。价格受地缘政治、OPEC+ 产量政策与全球需求预期共同驱动。",
-    "copper": "COMEX 铜期货折算为美元/吨，与 LME 铜走势高度一致。铜被称为「铜博士」，对全球制造业景气度极为敏感。",
-    "spx":  "标普500指数，美国大盘股基准。是观察全球风险偏好与美股资金流向的核心指标。",
-    "ndx":  "纳斯达克综合指数，以科技股为主。对利率变化与 AI 产业叙事高度敏感，波动大于标普500。",
-    "ust10y": "美国10年期国债收益率（^TNX）。作为全球资产定价的「利率锚」，上行通常压制成长股与黄金，利多美元。",
-    "vix":  "CBOE 波动率指数，衡量标普500未来30天的隐含波动率。通常与股市负相关，是市场恐慌情绪的「温度计」。",
-    "btc":  "比特币现货价格（美元），7×24 小时交易。近年机构资金通过现货 ETF 大量参与，已成为风险偏好的领先指标之一。",
-    "cny":  "美元兑人民币在岸汇率。数值下行代表人民币升值，数值上行代表人民币贬值。",
+    # 股
+    "spx":  "标普500指数，美国大盘股基准，观察全球风险偏好的核心指标。",
+    "ndx":  "纳斯达克综合指数，科技股为主，对利率与 AI 产业叙事高度敏感。",
+    "dji":  "道琼斯工业平均指数，30 只蓝筹股价格加权，传统工业与金融权重较高。",
+    "rut":  "罗素2000指数，美国小盘股代表，对本土经济与信贷环境更敏感。",
+    "sox":  "费城半导体指数，全球半导体产业风向标，AI 算力需求的核心映射。",
+    "dax":  "德国DAX指数，欧洲最大经济体蓝筹基准，制造业出口导向明显。",
+    "ftse": "英国富时100指数，伦敦交易所蓝筹基准，能源与金融权重较高。",
+    "cac":  "法国CAC40指数，巴黎交易所蓝筹基准，奢侈品与工业占比高。",
+    "n225": "日经225指数，东京交易所蓝筹基准，日元汇率与出口景气度关联紧密。",
+    "kospi":"韩国KOSPI指数，三星、SK海力士等半导体权重高，全球科技周期温度计。",
+    "axjo": "澳洲标普200指数，悉尼交易所蓝筹基准，矿业与金融权重较高。",
+    "nsei": "印度Nifty50指数，印度大盘基准，新兴市场资金流入的重要观测标的。",
+    "bvsp": "巴西IBOVESPA指数，拉美最大股票市场，大宗商品与汇率联动明显。",
+    "hsi":  "恒生指数，香港交易所蓝筹基准，中资与外资资金交锋的前沿。",
+    "hstech":"恒生科技指数，港股科技龙头集合，中概股资金流向的核心指标。",
+    "sse":  "上证综合指数，上海交易所全部股票加权，A股资金面的基础指标。",
+    "csi300":"沪深300指数，A股大盘蓝筹基准，境内机构与外资的主要配置对象。",
+    "chinext": "创业板指（399006.SZ），由创业板中市值大、流动性好的100只股票组成，反映创业板市场运行情况[reference:4]。",
+
+    # 债
+    "ust2y":  "美国2年期国债收益率（FRED: DGS2）。对美联储政策路径最敏感。",
+    "ust10y": "美国10年期国债收益率（FRED: DGS10）。全球资产定价的「利率锚」。",
+    "ust30y": "美国30年期国债收益率（FRED: DGS30）。反映长期通胀预期与期限溢价。",
+
+    # 汇
+    "dxy":    "美元指数，衡量美元对一篮子主要货币的强弱。",
+    "dtwexbgs":"美元广义贸易加权指数（FRED: DTWEXBGS），覆盖范围比 DXY 更广。",
+    "eurusd": "欧元兑美元汇率，全球交易量最大的货币对。",
+    "usdjpy": "美元兑日元汇率，套息交易与日元避险属性的核心观察指标。",
+    "gbpusd":"英镑兑美元汇率，英欧资金流向的重要参考。",
+    "usdcny":"美元兑人民币在岸汇率。数值下行代表人民币升值。",
+
+    # 能源
+    "wti":  "WTI 西德州中质原油期货，北美原油定价基准。",
+    "brent":"布伦特原油期货，全球原油定价基准，受地缘政治与 OPEC+ 政策驱动。",
+
+    # 贵金属
+    "gold": "COMEX 黄金期货主力合约，避险与抗通胀属性的核心资产。",
+    "silver":"COMEX 白银期货，兼具贵金属与工业金属双重属性。",
+
+    # 工业金属
+    "copper":"COMEX 铜期货主力合约，被称为「铜博士」，对全球制造业景气度敏感。",
+
+    # 加密
+    "btc":  "比特币现货价格（美元），24×7 交易，机构资金参与度持续提升。",
+    "eth":  "以太坊现货价格（美元），加密市场第二大资产。",
+
+    # 贸易流
+    "gscpi":"纽约联储全球供应链压力指数（FRED: GSCPI）。数值越高表示供应链越紧张。",
 }
 
 RANGE_OPTIONS = {
@@ -144,11 +300,28 @@ RANGE_OPTIONS = {
 
 
 # ============================================================
+# FRED 客户端（延迟初始化）
+# ============================================================
+@st.cache_resource(show_spinner=False)
+def get_fred_client():
+    try:
+        key = st.secrets.get("FRED_API_KEY", "")
+    except Exception:
+        key = ""
+    if not key:
+        return None
+    try:
+        return Fred(api_key=key)
+    except Exception:
+        return None
+
+
+# ============================================================
 # 数据获取
 # ============================================================
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_series(symbols: tuple, start_str: str, end_str: str, scale: float):
-    """按顺序尝试多个 symbol，返回收盘价 Series。"""
+def fetch_yf_series(symbols: tuple, start_str: str, end_str: str, scale: float):
+    """yfinance 拉取收盘价，按顺序尝试多个 symbol。"""
     import yfinance as yf
 
     for sym in symbols:
@@ -165,7 +338,6 @@ def fetch_series(symbols: tuple, start_str: str, end_str: str, scale: float):
             if s.empty or len(s) < 2:
                 continue
 
-            # 去除时区
             try:
                 s.index = pd.to_datetime(s.index).tz_localize(None)
             except Exception:
@@ -173,7 +345,6 @@ def fetch_series(symbols: tuple, start_str: str, end_str: str, scale: float):
 
             s = s.astype(float) * float(scale)
 
-            # ^TNX 异常防护：若数值 > 20，说明是放大 10 倍，需还原
             if s.iloc[-1] > 20 and "TNX" in sym.upper():
                 s = s / 10.0
 
@@ -183,6 +354,25 @@ def fetch_series(symbols: tuple, start_str: str, end_str: str, scale: float):
             continue
 
     return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_fred_series(series_id: str, start_str: str, end_str: str):
+    """FRED 拉取时间序列。未配置 FRED_API_KEY 时返回 None。"""
+    fred = get_fred_client()
+    if fred is None:
+        return None
+    try:
+        s = fred.get_series(series_id, observation_start=start_str, observation_end=end_str)
+        if s is None:
+            return None
+        s = s.dropna()
+        if s.empty or len(s) < 2:
+            return None
+        s.index = pd.to_datetime(s.index).tz_localize(None)
+        return s.astype(float)
+    except Exception:
+        return None
 
 
 def load_all(asset_ids, start: date, end: date):
@@ -195,7 +385,12 @@ def load_all(asset_ids, start: date, end: date):
         a = ASSET_MAP.get(aid)
         if not a:
             continue
-        s = fetch_series(tuple(a["symbols"]), start_str, end_str, a["scale"])
+
+        if a.get("source") == "fred":
+            s = fetch_fred_series(a["symbols"][0], start_str, end_str)
+        else:
+            s = fetch_yf_series(tuple(a["symbols"]), start_str, end_str, a.get("scale", 1.0))
+
         if s is not None:
             out[aid] = s
     return out
@@ -307,30 +502,43 @@ def detail_chart(series, meta):
     return fig
 
 
-def compare_chart(data_map, selected):
+def compare_chart(data_map, selected, normalize=True):
     fig = go.Figure()
+
     for aid in selected:
         a = ASSET_MAP[aid]
         s = data_map[aid].dropna()
         if len(s) < 2:
             continue
-        norm = s / s.iloc[0] * 100.0
+
+        if normalize:
+            y = s / s.iloc[0] * 100.0
+            name = a["name"]
+            hovertemplate = f"<b>{a['name']}</b> %{{y:.1f}}<extra></extra>"
+        else:
+            y = s
+            name = f'{a["name"]} ({a["unit"]})' if a["unit"] else a["name"]
+            unit_str = a["unit"] or ""
+            hovertemplate = f"<b>{a['name']}</b> %{{y:,.4f}} {unit_str}<extra></extra>"
+
         fig.add_trace(go.Scatter(
-            x=norm.index, y=norm.values,
-            mode="lines", name=a["name"],
+            x=y.index, y=y.values,
+            mode="lines", name=name,
             line=dict(color=a["color"], width=1.8),
-            hovertemplate=f"<b>{a['name']}</b> %{{y:.1f}}<extra></extra>",
+            hovertemplate=hovertemplate,
         ))
 
-    fig.add_hline(y=100, line_dash="dot", line_color="#3a4459", line_width=1)
+    if normalize:
+        fig.add_hline(y=100, line_dash="dot", line_color="#3a4459", line_width=1)
 
-    # 这里不再传 xaxis / yaxis，就不会冲突
     fig.update_layout(**PLOT_BASE, height=430)
 
-    # 标题单独设置
-    fig.update_yaxes(title_text="基期 = 100", title_font=dict(size=11, color="#4a5670"))
-    return fig
+    if normalize:
+        fig.update_yaxes(title_text="基期 = 100", title_font=dict(size=11, color="#4a5670"))
+    else:
+        fig.update_yaxes(title_text="原始点位", title_font=dict(size=11, color="#4a5670"))
 
+    return fig
 
 # ============================================================
 # 汇总计算
@@ -361,7 +569,7 @@ def build_summary(data_map):
             "区间涨跌%": pct_change(s, len(s) - 1),
             "区间高": float(s.max()),
             "区间低": float(s.min()),
-            "分组": a["group"],
+            "分类": a["cat"],
             "_id": aid,
         })
     return pd.DataFrame(rows)
@@ -390,24 +598,54 @@ with st.sidebar:
     )
 
     st.divider()
-    st.markdown("**对比图标的**")
-    compare_ids = st.multiselect(
-        "归一化对比",
-        options=selected_ids if selected_ids else default_ids,
-        default=(selected_ids or default_ids)[:6],
-        format_func=lambda x: ASSET_MAP[x]["name"],
+    st.markdown("**对比模式**")
+    compare_mode = st.radio(
+        "对比模式",
+        ["归一化（起点=100）", "绝对点位"],
+        index=0,
         label_visibility="collapsed",
     )
+    normalize = compare_mode.startswith("归一化")
+    
+    st.divider()
+    st.markdown("**涨跌配色**")
+    color_scheme = st.radio(
+        "涨跌配色",
+        ["中国配色（红涨绿跌）", "国际配色（绿涨红跌）"],
+        index=0,
+        label_visibility="collapsed",
+    )
+    use_china = color_scheme.startswith("中国")
 
     st.divider()
-    if st.button("🔄 强制刷新数据", use_container_width=True):
+    if st.button("🔄 强制刷新数据", width="stretch"):
         st.cache_data.clear()
         st.rerun()
 
     st.caption("缓存有效期 1 小时，点按钮可立即重新拉取。")
 
+# ============================================================
+# 涨跌配色 CSS（必须在卡片渲染之前注入）
+# ============================================================
+
+    if use_china:
+        up_color = "#ff4d6a"      # 中国配色：涨 = 红
+        down_color = "#00d68f"    # 中国配色：跌 = 绿
+    else:
+        up_color = "#00d68f"      # 国际配色：涨 = 绿
+        down_color = "#ff4d6a"    # 国际配色：跌 = 红
+
+    st.markdown(f"""
+    <style>
+    .c-chg.up   {{ color: {up_color} !important; }}
+    .c-chg.down {{ color: {down_color} !important; }}
+    .statbar .u {{ color: {up_color} !important; }}
+    .statbar .d {{ color: {down_color} !important; }}
+    </style>
+    """, unsafe_allow_html=True)
+
 if not selected_ids:
-    st.warning("请在左侧至少选择一个资产。")
+    st.info("👉 请在左侧侧边栏中选择至少一个资产。")
     st.stop()
 
 # ============================================================
@@ -458,44 +696,61 @@ if chg_list:
     )
 
 # ============================================================
-# 卡片网格
+# 卡片网格：按分类分组，每类一种颜色
 # ============================================================
-cards_html = []
-for aid, s in data_map.items():
-    a = ASSET_MAP[aid]
-    s = s.dropna()
-    if len(s) < 2:
+for cat in CATEGORY_ORDER:
+    cat_assets = [a for a in ASSETS if a["cat"] == cat and a["id"] in data_map]
+    if not cat_assets:
         continue
 
-    last = float(s.iloc[-1])
-    first = float(s.iloc[0])
-    chg = (last - first) / first * 100 if first else 0.0
-    up = chg >= 0
+    info = CATEGORIES[cat]
 
-    dec = a["decimals"]
-    val_str = f"{last:,.{dec}f}"
-    unit_html = f'<span class="c-unit">{a["unit"]}</span>' if a["unit"] else ""
-    arrow = "▲" if up else "▼"
-    cls = "up" if up else "down"
-
-    # 为了 sparkline 性能，最多取 260 个点
-    spark_vals = s.values[-260:] if len(s) > 260 else s.values
-    spark = sparkline_svg(spark_vals, a["color"], uid=f'c{aid}')
-
-    cards_html.append(
-        f'<div class="card" style="--c:{a["color"]}">'
-        f'<div class="c-head"><span class="c-dot"></span>'
-        f'<span class="c-name">{a["name"]}</span>'
-        f'<span class="c-tick">{a["ticker"]}</span></div>'
-        f'<div class="c-val">{val_str}{unit_html}</div>'
-        f'<div class="c-chg {cls}"><span class="arrow">{arrow}</span>{abs(chg):.2f}%'
-        f'<span style="color:#48546e;font-weight:400;font-size:10px">区间</span></div>'
-        f'{spark}'
-        f'</div>'
+    # 分类标题条
+    st.markdown(
+        f'<div style="background:{info["color"]};color:#fff;'
+        f'padding:9px 16px;border-radius:8px;margin:22px 0 12px 0;'
+        f'font-size:14px;font-weight:700;letter-spacing:.3px">'
+        f'{info["icon"]} {cat} · {len(cat_assets)} 项'
+        f'</div>',
+        unsafe_allow_html=True,
     )
 
-if cards_html:
-    st.markdown('<div class="grid">' + "".join(cards_html) + "</div>", unsafe_allow_html=True)
+    # 分类内卡片
+    cards = []
+    for a in cat_assets:
+        s = data_map[a["id"]].dropna()
+        if len(s) < 2:
+            continue
+
+        last = float(s.iloc[-1])
+        first = float(s.iloc[0])
+        chg = (last - first) / first * 100 if first else 0.0
+        up = chg >= 0
+
+        dec = a["decimals"]
+        val_str = f"{last:,.{dec}f}"
+        unit_html = f'<span class="c-unit">{a["unit"]}</span>' if a["unit"] else ""
+        arrow = "▲" if up else "▼"
+        cls = "up" if up else "down"
+
+        spark_vals = s.values[-260:] if len(s) > 260 else s.values
+        # 卡片内的曲线用分类色，视觉上更统一
+        spark = sparkline_svg(spark_vals, info["color"], uid=f'c{a["id"]}')
+
+        cards.append(
+            f'<div class="card" style="--c:{info["color"]}">'
+            f'<div class="c-head"><span class="c-dot"></span>'
+            f'<span class="c-name">{a["name"]}</span>'
+            f'<span class="c-tick">{a["ticker"]}</span></div>'
+            f'<div class="c-val">{val_str}{unit_html}</div>'
+            f'<div class="c-chg {cls}"><span class="arrow">{arrow}</span>{abs(chg):.2f}%'
+            f'<span style="color:#48546e;font-weight:400;font-size:10px">区间</span></div>'
+            f'{spark}'
+            f'</div>'
+        )
+
+    if cards:
+        st.markdown('<div class="grid">' + "".join(cards) + "</div>", unsafe_allow_html=True)
 
 st.write("")
 
@@ -506,14 +761,20 @@ tab1, tab2, tab3 = st.tabs(["📊 归一化对比", "🔍 单标的详情", "�
 
 # ---------- Tab 1 ----------
 with tab1:
-    valid_compare = [i for i in compare_ids if i in data_map]
+    valid_compare = [i for i in selected_ids if i in data_map]
     if len(valid_compare) < 1:
-        st.info("请在左侧选择至少一个对比标的。")
+        st.info("请在左侧选择至少一个资产。")
     else:
-        st.caption("所有标的起点归一化为 100，方便横向比较相对强弱。")
+        if normalize:
+            st.caption("所有标的起点归一化为 100，方便横向比较相对强弱。")
+        else:
+            st.caption(
+                "显示选中资产的原始点位。不同数量级差异较大的资产（如 SPX 与 VIX）"
+                "可能难以在同一纵轴上分辨，建议按需勾选或切换回归一化模式。"
+            )
         st.plotly_chart(
-            compare_chart(data_map, valid_compare),
-            use_container_width=True,
+            compare_chart(data_map, valid_compare, normalize),
+            width="stretch",
             config={"displayModeBar": False},
         )
 
@@ -548,7 +809,7 @@ with tab2:
 
         st.plotly_chart(
             detail_chart(s, a),
-            use_container_width=True,
+            width=True,
             config={"displayModeBar": False},
         )
 
@@ -574,7 +835,7 @@ with tab3:
 
         st.dataframe(
             show,
-            use_container_width=True,
+            width=True,
             hide_index=True,
             column_config={
                 "资产": st.column_config.TextColumn(width="medium"),
@@ -586,7 +847,7 @@ with tab3:
                 "区间涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
                 "区间高": st.column_config.NumberColumn(format="%.4f"),
                 "区间低": st.column_config.NumberColumn(format="%.4f"),
-                "分组": st.column_config.TextColumn(width="small"),
+                "分类": st.column_config.TextColumn(width="small"),
             },
         )
 
