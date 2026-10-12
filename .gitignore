@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Streamlit 敏感配置
+.streamlit/secrets.toml
+
+# macOS
+.DS_Store
+._*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 其他
+*.bak
+*.log
