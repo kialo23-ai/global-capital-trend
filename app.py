@@ -1,12 +1,13 @@
 # app.py
 # 全球资金趋势 · Streamlit 版本（日度更新）
-# 依赖: streamlit, yfinance, pandas, numpy, plotly
+# 依赖: streamlit, yfinance, pandas, numpy, plotly, fred
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
+from fredapi import Fred
 
 # ============================================================
 # 页面配置
