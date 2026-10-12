@@ -239,15 +239,12 @@ PLOT_BASE = dict(
     ),
     margin=dict(l=8, r=8, t=34, b=8),
     hovermode="x unified",
-    xaxis=dict(gridcolor="#1a2334", zeroline=False,
-               showspikes=True, spikecolor="#3a4459", spikethickness=1),
-    yaxis=dict(gridcolor="#1a2334", zeroline=False),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
                 bgcolor="rgba(0,0,0,0)"),
 )
 
 
-def detail_chart(series: pd.Series, meta: dict):
+def detail_chart(series, meta):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=series.index, y=series.values,
@@ -275,26 +272,36 @@ def detail_chart(series: pd.Series, meta: dict):
     ))
 
     pad = (float(series.max()) - float(series.min())) * 0.10 or 1
+
+    # 布局：只传 PLOT_BASE 里的通用配置
     fig.update_layout(
         **PLOT_BASE,
         height=340,
         showlegend=False,
-        yaxis=dict(gridcolor="#1a2334", zeroline=False,
-                   range=[float(series.min()) - pad, float(series.max()) + pad]),
-        xaxis=dict(gridcolor="#1a2334", zeroline=False,
-                   rangeselector=dict(
-                       buttons=[
-                           dict(count=1, label="1M", step="month", stepmode="backward"),
-                           dict(count=3, label="3M", step="month", stepmode="backward"),
-                           dict(count=6, label="6M", step="month", stepmode="backward"),
-                           dict(count=1, label="1Y", step="year", stepmode="backward"),
-                           dict(step="all", label="全部"),
-                       ],
-                       bgcolor="#141b2b", activecolor="#25314d",
-                       font=dict(color="#8b99b5", size=11),
-                       x=0, y=1.16, xanchor="left",
-                   ),
-                   showspikes=True, spikecolor="#3a4459", spikethickness=1),
+    )
+
+    # 坐标轴单独设置
+    fig.update_yaxes(
+        gridcolor="#1a2334",
+        zeroline=False,
+        range=[float(series.min()) - pad, float(series.max()) + pad],
+    )
+    fig.update_xaxes(
+        gridcolor="#1a2334",
+        zeroline=False,
+        showspikes=True, spikecolor="#3a4459", spikethickness=1,
+        rangeselector=dict(
+            buttons=[
+                dict(count=1, label="1M", step="month", stepmode="backward"),
+                dict(count=3, label="3M", step="month", stepmode="backward"),
+                dict(count=6, label="6M", step="month", stepmode="backward"),
+                dict(count=1, label="1Y", step="year", stepmode="backward"),
+                dict(step="all", label="全部"),
+            ],
+            bgcolor="#141b2b", activecolor="#25314d",
+            font=dict(color="#8b99b5", size=11),
+            x=0, y=1.16, xanchor="left",
+        ),
     )
     return fig
 
@@ -315,7 +322,11 @@ def compare_chart(data_map, selected):
         ))
 
     fig.add_hline(y=100, line_dash="dot", line_color="#3a4459", line_width=1)
+
+    # 这里不再传 xaxis / yaxis，就不会冲突
     fig.update_layout(**PLOT_BASE, height=430)
+
+    # 标题单独设置
     fig.update_yaxes(title_text="基期 = 100", title_font=dict(size=11, color="#4a5670"))
     return fig
 
