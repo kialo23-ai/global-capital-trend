@@ -235,6 +235,47 @@ ASSETS = [
 
 ASSET_MAP = {a["id"]: a for a in ASSETS}
 
+# ============================================================
+# 全局选中状态（侧边栏 + 卡片复选框共用）
+# ============================================================
+if "selected" not in st.session_state:
+    st.session_state.selected = [a["id"] for a in ASSETS]
+
+
+def toggle_card(aid):
+    """卡片复选框切换时调用。"""
+    if st.session_state[f"card_{aid}"]:
+        if aid not in st.session_state.selected:
+            st.session_state.selected = st.session_state.selected + [aid]
+    else:
+        st.session_state.selected = [x for x in st.session_state.selected if x != aid]
+
+
+def update_from_sidebar():
+    """侧边栏 multiselect 变化时调用。"""
+    st.session_state.selected = list(st.session_state.sb_sel)
+
+
+def select_all():
+    st.session_state.selected = [a["id"] for a in ASSETS]
+
+
+def clear_all():
+    st.session_state.selected = []
+
+
+def sync_widgets():
+    """让所有 widget 的 key 与 selected 状态保持同步。"""
+    sel_set = set(st.session_state.selected)
+    for a in ASSETS:
+        key = f"card_{a['id']}"
+        want = a["id"] in sel_set
+        if st.session_state.get(key) != want:
+            st.session_state[key] = want
+    want_sb = sorted(sel_set)
+    if sorted(st.session_state.get("sb_sel", [])) != want_sb:
+        st.session_state["sb_sel"] = want_sb
+
 # 说明文案
 NOTES = {
     # 股
@@ -298,6 +339,8 @@ RANGE_OPTIONS = {
     "近5年": 1825,
 }
 
+# 同步 widget 状态（必须在任何 widget 之前）
+sync_widgets()
 
 # ============================================================
 # FRED 客户端（延迟初始化）
@@ -319,22 +362,57 @@ def get_fred_client():
 # ============================================================
 # 数据获取
 # ============================================================
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_yf_series(symbols: tuple, start_str: str, end_str: str, scale: float):
-    """yfinance 拉取收盘价，按顺序尝试多个 symbol。"""
+@st.cache_data(ttl=21600, show_spinner=False)
+def batch_fetch_yf(asset_symbols: tuple, start_str: str, end_str: str):
+    """
+    asset_symbols: tuple of (asset_id, primary_symbol, scale)
+    一次请求批量下载，返回 {asset_id: Series}
+    """
     import yfinance as yf
+
+    if not asset_symbols:
+        return {}
+
+    sym_map = {}
+    for aid, sym, scale in asset_symbols:
+        sym_map[sym] = (aid, scale)
+
+    symbols = list(sym_map.keys())
+    out = {}
+
+    try:
+        df = yf.download(
+            tickers=symbols,
+            start=start_str,
+            end=end_str,
+            auto_adjust=False,
+            progress=False,
+            threads=True,
+            group_by="ticker",
+        )
+    except Exception:
+        return {}
+
+    if df is None or df.empty:
+        return {}
 
     for sym in symbols:
         try:
-            df = yf.Ticker(sym).history(start=start_str, end=end_str, auto_adjust=False)
-            if df is None or df.empty:
+            if len(symbols) == 1:
+                sub = df
+            else:
+                if sym not in df.columns.get_level_values(0):
+                    continue
+                sub = df[sym]
+
+            if sub is None or sub.empty:
                 continue
 
-            col = "Close" if "Close" in df.columns else ("Adj Close" if "Adj Close" in df.columns else None)
+            col = "Close" if "Close" in sub.columns else ("Adj Close" if "Adj Close" in sub.columns else None)
             if col is None:
                 continue
 
-            s = df[col].dropna()
+            s = sub[col].dropna()
             if s.empty or len(s) < 2:
                 continue
 
@@ -343,20 +421,19 @@ def fetch_yf_series(symbols: tuple, start_str: str, end_str: str, scale: float):
             except Exception:
                 s.index = pd.to_datetime(s.index)
 
+            aid, scale = sym_map[sym]
             s = s.astype(float) * float(scale)
 
-            if s.iloc[-1] > 20 and "TNX" in sym.upper():
+            if "TNX" in sym.upper() and s.iloc[-1] > 20:
                 s = s / 10.0
 
-            return s
-
+            out[aid] = s
         except Exception:
             continue
 
-    return None
+    return out
 
-
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=21600, show_spinner=False)
 def fetch_fred_series(series_id: str, start_str: str, end_str: str):
     """FRED 拉取时间序列。未配置 FRED_API_KEY 时返回 None。"""
     fred = get_fred_client()
@@ -376,23 +453,35 @@ def fetch_fred_series(series_id: str, start_str: str, end_str: str):
 
 
 def load_all(asset_ids, start: date, end: date):
-    """批量拉取，返回 {id: Series}。"""
+    """批量拉取：yfinance 用一次请求，FRED 逐个拉。"""
     start_str = start.isoformat()
     end_str = (end + timedelta(days=1)).isoformat()
 
     out = {}
+
+    yf_assets = []
+    fred_assets = []
+
     for aid in asset_ids:
         a = ASSET_MAP.get(aid)
         if not a:
             continue
-
         if a.get("source") == "fred":
-            s = fetch_fred_series(a["symbols"][0], start_str, end_str)
+            fred_assets.append(a)
         else:
-            s = fetch_yf_series(tuple(a["symbols"]), start_str, end_str, a.get("scale", 1.0))
+            primary = a["symbols"][0] if a["symbols"] else None
+            if primary:
+                yf_assets.append((a["id"], primary, a.get("scale", 1.0)))
 
+    if yf_assets:
+        batch = batch_fetch_yf(tuple(yf_assets), start_str, end_str)
+        out.update(batch)
+
+    for a in fred_assets:
+        s = fetch_fred_series(a["symbols"][0], start_str, end_str)
         if s is not None:
-            out[aid] = s
+            out[a["id"]] = s
+
     return out
 
 
@@ -507,7 +596,7 @@ def compare_chart(data_map, selected, normalize=True):
 
     for aid in selected:
         a = ASSET_MAP[aid]
-        s = data_map[aid].dropna()
+        s = all_data_map[aid].dropna()
         if len(s) < 2:
             continue
 
@@ -554,7 +643,7 @@ def pct_change(s, periods):
 
 def build_summary(data_map):
     rows = []
-    for aid, s in data_map.items():
+    for aid, s in all_data_map.items():
         a = ASSET_MAP[aid]
         s = s.dropna()
         if len(s) < 2:
@@ -589,11 +678,12 @@ with st.sidebar:
     st.divider()
     st.markdown("**选择资产**")
     default_ids = [a["id"] for a in ASSETS]
-    selected_ids = st.multiselect(
+    st.multiselect(
         "配置表标的",
         options=default_ids,
-        default=default_ids,
+        key="sb_sel",
         format_func=lambda x: ASSET_MAP[x]["name"],
+        on_change=update_from_sidebar,
         label_visibility="collapsed",
     )
 
@@ -622,7 +712,7 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-    st.caption("缓存有效期 1 小时，点按钮可立即重新拉取。")
+    st.caption("缓存有效期 6 小时，点按钮可立即重新拉取。")
 
 # ============================================================
 # 涨跌配色 CSS（必须在卡片渲染之前注入）
@@ -644,37 +734,29 @@ with st.sidebar:
     </style>
     """, unsafe_allow_html=True)
 
-if not selected_ids:
-    st.info("👉 请在左侧侧边栏中选择至少一个资产。")
-    st.stop()
-
 # ============================================================
-# 拉取数据
+# 拉取数据：始终拉取全部资产
 # ============================================================
 end_date = date.today()
 start_date = end_date - timedelta(days=days)
 
-with st.spinner("正在拉取行情数据…"):
-    data_map = load_all(selected_ids, start_date, end_date)
+all_ids = [a["id"] for a in ASSETS]
 
-if not data_map:
+with st.spinner("正在拉取行情数据…"):
+    all_data_map = load_all(all_ids, start_date, end_date)
+
+if not all_data_map:
     st.error("未能获取任何数据。请检查网络连接，或点击侧边栏「强制刷新数据」重试。")
     st.stop()
 
-now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-st.markdown(
-    f'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px">'
-    f'<span style="font-size:19px;font-weight:700;letter-spacing:.3px">全球资金流向配置表</span>'
-    f'<span style="font-size:11.5px;color:#48546e">数据更新于 {now_str} · 区间 {start_date} ~ {end_date}</span>'
-    f'</div>',
-    unsafe_allow_html=True,
-)
+# 选中资产的子集，供标签页使用
+selected_data_map = {k: v for k, v in all_data_map.items() if k in st.session_state.selected}
 
 # ============================================================
 # 顶部统计条
 # ============================================================
 chg_list = []
-for aid, s in data_map.items():
+for aid, s in all_data_map.items():
     c = pct_change(s.dropna(), len(s.dropna()) - 1)
     if not np.isnan(c):
         chg_list.append((aid, c))
@@ -690,16 +772,28 @@ if chg_list:
         f'<span>区间上涨 <b class="u">{ups}</b> / 下跌 <b class="d">{downs}</b></span>'
         f'<span>最强 <b class="u">{ASSET_MAP[best_id]["name"]} {best_c:+.2f}%</b></span>'
         f'<span>最弱 <b class="d">{ASSET_MAP[worst_id]["name"]} {worst_c:+.2f}%</b></span>'
-        f'<span>覆盖资产 <b>{len(data_map)}</b> 个</span>'
+        f'<span>覆盖资产 <b>{len(all_data_map)}</b> 个</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
 # ============================================================
+# 工具栏：全选 / 清除
+# ============================================================
+col_a, col_b, col_info = st.columns([1, 1, 6])
+
+with col_a:
+    st.button("✓ 全选", on_click=select_all, width="stretch", key="btn_all")
+with col_b:
+    st.button("✗ 清除", on_click=clear_all, width="stretch", key="btn_clear")
+with col_info:
+    st.caption(f"已选 **{len(st.session_state.selected)}** / {len(ASSETS)} 个指标") 
+
+# ============================================================
 # 卡片网格：按分类分组，每类一种颜色
 # ============================================================
 for cat in CATEGORY_ORDER:
-    cat_assets = [a for a in ASSETS if a["cat"] == cat and a["id"] in data_map]
+    cat_assets = [a for a in ASSETS if a["cat"] == cat and a["id"] in all_data_map]
     if not cat_assets:
         continue
 
@@ -717,37 +811,50 @@ for cat in CATEGORY_ORDER:
 
     # 分类内卡片
     cards = []
-    for a in cat_assets:
-        s = data_map[a["id"]].dropna()
-        if len(s) < 2:
-            continue
+    cols = st.columns(4)
+    for i, a in enumerate(cat_assets):
+        with cols[i % 4]:
+            aid = a["id"]
 
-        last = float(s.iloc[-1])
-        first = float(s.iloc[0])
-        chg = (last - first) / first * 100 if first else 0.0
-        up = chg >= 0
+            # 复选框
+            st.checkbox(
+                f"选择 {a['name']}",
+                key=f"card_{aid}",
+                on_change=lambda aid=aid: toggle_card(aid),
+                label_visibility="collapsed",
+            )
 
-        dec = a["decimals"]
-        val_str = f"{last:,.{dec}f}"
-        unit_html = f'<span class="c-unit">{a["unit"]}</span>' if a["unit"] else ""
-        arrow = "▲" if up else "▼"
-        cls = "up" if up else "down"
+            # 卡片 HTML（保持原样）
+            s = all_data_map[aid].dropna()
+            if len(s) < 2:
+                continue
 
-        spark_vals = s.values[-260:] if len(s) > 260 else s.values
-        # 卡片内的曲线用分类色，视觉上更统一
-        spark = sparkline_svg(spark_vals, info["color"], uid=f'c{a["id"]}')
+            last = float(s.iloc[-1])
+            first = float(s.iloc[0])
+            chg = (last - first) / first * 100 if first else 0.0
+            up = chg >= 0
 
-        cards.append(
-            f'<div class="card" style="--c:{info["color"]}">'
-            f'<div class="c-head"><span class="c-dot"></span>'
-            f'<span class="c-name">{a["name"]}</span>'
-            f'<span class="c-tick">{a["ticker"]}</span></div>'
-            f'<div class="c-val">{val_str}{unit_html}</div>'
-            f'<div class="c-chg {cls}"><span class="arrow">{arrow}</span>{abs(chg):.2f}%'
-            f'<span style="color:#48546e;font-weight:400;font-size:10px">区间</span></div>'
-            f'{spark}'
-            f'</div>'
-        )
+            dec = a["decimals"]
+            val_str = f"{last:,.{dec}f}"
+            unit_html = f'<span class="c-unit">{a["unit"]}</span>' if a["unit"] else ""
+            arrow = "▲" if up else "▼"
+            cls = "up" if up else "down"
+
+            spark_vals = s.values[-260:] if len(s) > 260 else s.values
+            spark = sparkline_svg(spark_vals, info["color"], uid=f'c{aid}')
+
+            st.markdown(
+                f'<div class="card" style="--c:{info["color"]}">'
+                f'<div class="c-head"><span class="c-dot"></span>'
+                f'<span class="c-name">{a["name"]}</span>'
+                f'<span class="c-tick">{a["ticker"]}</span></div>'
+                f'<div class="c-val">{val_str}{unit_html}</div>'
+                f'<div class="c-chg {cls}"><span class="arrow">{arrow}</span>{abs(chg):.2f}%'
+                f'<span style="color:#48546e;font-weight:400;font-size:10px">区间</span></div>'
+                f'{spark}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     if cards:
         st.markdown('<div class="grid">' + "".join(cards) + "</div>", unsafe_allow_html=True)
@@ -755,16 +862,18 @@ for cat in CATEGORY_ORDER:
 st.write("")
 
 # ============================================================
-# 标签页
+# 标签页：只在有选中资产时渲染内容
 # ============================================================
 tab1, tab2, tab3 = st.tabs(["📊 归一化对比", "🔍 单标的详情", "📋 数据总表"])
 
+has_selection = len(selected_data_map) > 0
+
 # ---------- Tab 1 ----------
 with tab1:
-    valid_compare = [i for i in selected_ids if i in data_map]
-    if len(valid_compare) < 1:
-        st.info("请在左侧选择至少一个资产。")
+    if not has_selection:
+        st.info("👉 请在侧边栏或卡片上方勾选至少一个资产，即可查看归一化对比。")
     else:
+        valid_compare = [i for i in st.session_state.selected if i in selected_data_map]
         if normalize:
             st.caption("所有标的起点归一化为 100，方便横向比较相对强弱。")
         else:
@@ -773,17 +882,17 @@ with tab1:
                 "可能难以在同一纵轴上分辨，建议按需勾选或切换回归一化模式。"
             )
         st.plotly_chart(
-            compare_chart(data_map, valid_compare, normalize),
+            compare_chart(selected_data_map, valid_compare, normalize),
             width="stretch",
             config={"displayModeBar": False},
         )
 
 # ---------- Tab 2 ----------
 with tab2:
-    detail_ids = [i for i in selected_ids if i in data_map]
-    if not detail_ids:
-        st.info("暂无可用数据。")
+    if not has_selection:
+        st.info("👉 请在侧边栏或卡片上方勾选至少一个资产，即可查看单标的详情。")
     else:
+        detail_ids = [i for i in st.session_state.selected if i in selected_data_map]
         pick = st.selectbox(
             "选择标的",
             options=detail_ids,
@@ -791,7 +900,7 @@ with tab2:
             key="detail_pick",
         )
 
-        s = data_map[pick].dropna()
+        s = selected_data_map[pick].dropna()
         a = ASSET_MAP[pick]
 
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -809,13 +918,12 @@ with tab2:
 
         st.plotly_chart(
             detail_chart(s, a),
-            width=True,
+            width="stretch",
             config={"displayModeBar": False},
         )
 
         st.info(NOTES.get(pick, ""))
 
-        # 单标的 CSV 下载
         dl = s.rename("收盘价").to_frame()
         dl.index.name = "日期"
         st.download_button(
@@ -827,43 +935,45 @@ with tab2:
 
 # ---------- Tab 3 ----------
 with tab3:
-    df = build_summary(data_map)
-    if df.empty:
-        st.info("暂无数据。")
+    if not has_selection:
+        st.info("👉 请在侧边栏或卡片上方勾选至少一个资产，即可查看数据总表。")
     else:
-        show = df.drop(columns=["_id"]).copy()
+        df = build_summary(selected_data_map)
+        if df.empty:
+            st.info("暂无数据。")
+        else:
+            show = df.drop(columns=["_id"]).copy()
 
-        st.dataframe(
-            show,
-            width=True,
-            hide_index=True,
-            column_config={
-                "资产": st.column_config.TextColumn(width="medium"),
-                "代码": st.column_config.TextColumn(width="small"),
-                "最新": st.column_config.NumberColumn(format="%.4f"),
-                "日涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
-                "周涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
-                "月涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
-                "区间涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
-                "区间高": st.column_config.NumberColumn(format="%.4f"),
-                "区间低": st.column_config.NumberColumn(format="%.4f"),
-                "分类": st.column_config.TextColumn(width="small"),
-            },
-        )
+            st.dataframe(
+                show,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "资产": st.column_config.TextColumn(width="medium"),
+                    "代码": st.column_config.TextColumn(width="small"),
+                    "最新": st.column_config.NumberColumn(format="%.4f"),
+                    "日涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
+                    "周涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
+                    "月涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
+                    "区间涨跌%": st.column_config.NumberColumn(format="%.2f%%"),
+                    "区间高": st.column_config.NumberColumn(format="%.4f"),
+                    "区间低": st.column_config.NumberColumn(format="%.4f"),
+                    "分类": st.column_config.TextColumn(width="small"),
+                },
+            )
 
-        # 合并全部日度数据导出
-        merged = pd.DataFrame()
-        for aid, s in data_map.items():
-            merged[ASSET_MAP[aid]["name"]] = s
-        merged.index.name = "日期"
-        merged = merged.sort_index()
+            merged = pd.DataFrame()
+            for aid, s in selected_data_map.items():
+                merged[ASSET_MAP[aid]["name"]] = s
+            merged.index.name = "日期"
+            merged = merged.sort_index()
 
-        st.download_button(
-            "⬇️ 下载全部标的日度数据 (CSV)",
-            data=merged.to_csv().encode("utf-8-sig"),
-            file_name=f"global_flow_{end_date}.csv",
-            mime="text/csv",
-        )
+            st.download_button(
+                "⬇️ 下载全部标的日度数据 (CSV)",
+                data=merged.to_csv().encode("utf-8-sig"),
+                file_name=f"global_flow_{end_date}.csv",
+                mime="text/csv",
+            )
 
 # ============================================================
 # 全局样式
@@ -885,6 +995,14 @@ div[data-testid="stMetricDelta"] { font-size: 0.85rem !important; }
 }
 .main-title h1 { margin: 0; font-size: 1.6rem; }
 .main-title p { margin: 6px 0 0 0; font-size: 0.85rem; opacity: 0.85; }
+/* 卡片上方的复选框紧凑化 */
+div[data-testid="stCheckbox"] {
+    margin-bottom: -10px !important;
+    margin-top: -4px !important;
+}
+div[data-testid="stCheckbox"] label {
+    font-size: 11px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -893,6 +1011,6 @@ div[data-testid="stMetricDelta"] { font-size: 0.85rem !important; }
 # ============================================================
 st.divider()
 st.caption(
-    "数据来源：Yahoo Finance（通过 yfinance 获取），缓存有效期 1 小时。"
+    "数据来源：Yahoo Finance（通过 yfinance 获取），缓存有效期 6 小时。"
     "本页面仅用于趋势观察，所有数据为公开市场信息的整理，不构成任何投资建议。"
 )
